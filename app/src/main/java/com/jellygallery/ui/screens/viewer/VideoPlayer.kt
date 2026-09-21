@@ -27,7 +27,7 @@ fun VideoPlayer(
 
     val exoPlayer = remember(videoUri) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUri))
+            setMediaItem(androidx.media3.common.MediaItem.fromUri(videoUri))
             prepare()
             playWhenReady = true
         }
@@ -59,3 +59,4 @@ fun VideoPlayer(
         )
     }
 }
+

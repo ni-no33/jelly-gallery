@@ -35,14 +35,14 @@ jobs:
         set -o pipefail
         gradle assembleDebug --stacktrace 2>&1 | tee build_log.txt
 
-    - name: Print Error Summary if Failed
+    - name: Print Compilation Errors
       if: always()
       shell: bash
       run: |
-        echo "=== LAST 100 LINES OF BUILD LOG ==="
-        tail -n 100 build_log.txt || true
-        echo "=== SEARCH FOR APK FILES ==="
-        find . -name "*.apk" || true
+        echo "=== ALL COMPILATION ERRORS ==="
+        grep -E "^e: " build_log.txt || true
+        echo "=== FAILED TASKS ==="
+        grep -E "Execution failed for task" build_log.txt || true
 
     - name: Always Upload Build Log
       if: always()
