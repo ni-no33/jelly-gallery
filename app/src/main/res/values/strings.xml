@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Jelly Gallery</string>
+    <string name="permission_title">写真と動画へのアクセス</string>
+    <string name="permission_desc">端末の写真や動画を表示・整理するためにメディアへのアクセス権限が必要です。</string>
+    <string name="grant_permission">権限を許可する</string>
+    <string name="all_photos">すべてのメディア</string>
+    <string name="favorites">お気に入り</string>
+    <string name="albums">アルバム</string>
+    <string name="move_to">移動先を選択</string>
+    <string name="new_album">新しいアルバム</string>
+    <string name="create">作成</string>
+    <string name="cancel">キャンセル</string>
+    <string name="delete">削除</string>
+    <string name="share">共有</string>
+    <string name="favorite">お気に入り</string>
+</resources>
