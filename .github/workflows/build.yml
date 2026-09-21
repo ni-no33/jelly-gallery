@@ -30,13 +30,25 @@ jobs:
         sdkmanager "platforms;android-35" "build-tools;35.0.0" || true
 
     - name: Build Debug APK
-      run: gradle assembleDebug --stacktrace 2>&1 | tee build_log.txt
+      shell: bash
+      run: |
+        set -o pipefail
+        gradle assembleDebug --stacktrace 2>&1 | tee build_log.txt
 
-    - name: Upload Build Log on Failure
-      if: failure()
+    - name: Print Error Summary if Failed
+      if: always()
+      shell: bash
+      run: |
+        echo "=== LAST 100 LINES OF BUILD LOG ==="
+        tail -n 100 build_log.txt || true
+        echo "=== SEARCH FOR APK FILES ==="
+        find . -name "*.apk" || true
+
+    - name: Always Upload Build Log
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: build-failure-log
+        name: build-log
         path: build_log.txt
 
     - name: Upload Debug APK
