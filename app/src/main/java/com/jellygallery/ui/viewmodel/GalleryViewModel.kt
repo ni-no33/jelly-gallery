@@ -119,13 +119,24 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
-     * ゴミ箱へ移動（ダイアログなし権限があれば一発即座に実行）
+     * 削除処理:
+     * - 通常表示時: ゴミ箱へ移動（セーフティ）
+     * - ゴミ箱表示時: 完全に削除（ループ防止）
      */
-    fun trashItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
+    fun deleteOrTrashItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
         if (items.isEmpty()) return
 
+        if (_uiState.value.isTrashAlbum) {
+            // ゴミ箱の中なら完全削除
+            permanentDeleteItems(items, onComplete)
+        } else {
+            // 通常時はゴミ箱へ退避
+            trashItems(items, onComplete)
+        }
+    }
+
+    private fun trashItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
         if (repository.hasManageStoragePermission()) {
-            // ダイアログなしで即座にゴミ箱/削除
             viewModelScope.launch {
                 for (item in items) {
                     repository.directDeleteOrTrash(item)
@@ -136,7 +147,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 onComplete?.invoke()
             }
         } else {
-            // システム確認ダイアログ
             val uris = items.map { it.uri }
             val pi = repository.createTrashPendingIntent(uris, true)
             if (pi != null) {
@@ -148,6 +158,59 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                 }
                 _uiState.value = _uiState.value.copy(pendingIntent = pi)
             }
+        }
+    }
+
+    /**
+     * 完全削除（ゴミ箱から完全に消去）
+     */
+    fun permanentDeleteItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
+        if (items.isEmpty()) return
+        val uris = items.map { it.uri }
+        val pi = repository.createDeletePendingIntent(uris)
+        if (pi != null) {
+            onPendingSuccessAction = {
+                loadMedia()
+                clearSelection()
+                onComplete?.invoke()
+            }
+            _uiState.value = _uiState.value.copy(pendingIntent = pi)
+        } else {
+            viewModelScope.launch {
+                for (item in items) {
+                    repository.directDeleteOrTrash(item)
+                }
+                loadMedia()
+                clearSelection()
+                onComplete?.invoke()
+            }
+        }
+    }
+
+    /**
+     * ゴミ箱から元に戻す（復元）
+     */
+    fun restoreItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
+        if (items.isEmpty()) return
+        val uris = items.map { it.uri }
+        val pi = repository.createTrashPendingIntent(uris, false)
+        if (pi != null) {
+            onPendingSuccessAction = {
+                loadMedia()
+                clearSelection()
+                onComplete?.invoke()
+            }
+            _uiState.value = _uiState.value.copy(pendingIntent = pi)
+        }
+    }
+
+    /**
+     * ゴミ箱を空にする（全完全削除）
+     */
+    fun emptyTrash(onComplete: (() -> Unit)? = null) {
+        val allTrashed = _uiState.value.mediaList
+        if (allTrashed.isNotEmpty()) {
+            permanentDeleteItems(allTrashed, onComplete)
         }
     }
 

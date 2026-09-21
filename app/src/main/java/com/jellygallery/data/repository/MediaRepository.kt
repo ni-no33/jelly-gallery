@@ -172,7 +172,7 @@ class MediaRepository(private val context: Context) {
     /**
      * ゴミ箱へ移動（セーフティ）
      */
-    fun createTrashPendingIntent(uris: List<Uri>, trash: Boolean = true): PendingIntent? {
+    fun createTrashPendingIntent(uris: List<Uri>, trash: Boolean): PendingIntent? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             MediaStore.createTrashRequest(contentResolver, uris, trash)
         } else {
@@ -192,17 +192,13 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
-     * MANAGE_EXTERNAL_STORAGE が許可されている場合、ダイアログなしで直接削除/ゴミ箱移動
+     * MANAGE_EXTERNAL_STORAGE が許可されている場合、直接ファイル削除
      */
     suspend fun directDeleteOrTrash(item: MediaItem): Boolean = withContext(Dispatchers.IO) {
         try {
             val file = File(item.path)
             if (file.exists()) {
-                val deleted = file.delete()
-                if (deleted) {
-                    contentResolver.delete(item.uri, null, null)
-                    return@withContext true
-                }
+                file.delete()
             }
             contentResolver.delete(item.uri, null, null) > 0
         } catch (e: Exception) {

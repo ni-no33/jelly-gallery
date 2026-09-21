@@ -1,12 +1,9 @@
 package com.jellygallery
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.ActivityInfo
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -66,13 +63,6 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.StartIntentSenderForResult()
                 ) { result ->
                     viewModel.onPendingIntentResult(result.resultCode == RESULT_OK)
-                }
-
-                // すべてのファイル管理権限（ダイアログなし削除）用ランチャー
-                val manageStorageLauncher = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.StartActivityForResult()
-                ) {
-                    viewModel.checkPermissions()
                 }
 
                 LaunchedEffect(uiState.pendingIntent) {
@@ -147,8 +137,8 @@ class MainActivity : ComponentActivity() {
                                 mediaList = uiState.mediaList,
                                 initialIndex = currentViewing,
                                 albums = uiState.albums,
+                                isTrashMode = uiState.isTrashAlbum,
                                 onBack = {
-                                    // 一覧に戻る際、直前まで見ていた位置にグリッドをスクロール
                                     currentViewing.let { idx ->
                                         coroutineScope.launch {
                                             gridState.scrollToItem(idx.coerceIn(0, (uiState.mediaList.size - 1).coerceAtLeast(0)))
@@ -157,8 +147,11 @@ class MainActivity : ComponentActivity() {
                                     viewingIndex = null
                                 },
                                 onToggleFavorite = { viewModel.toggleFavorite(it) },
-                                onTrash = { item, onDone ->
-                                    viewModel.trashItems(listOf(item), onDone)
+                                onDeleteOrTrash = { item, onDone ->
+                                    viewModel.deleteOrTrashItems(listOf(item), onDone)
+                                },
+                                onRestore = { item, onDone ->
+                                    viewModel.restoreItems(listOf(item), onDone)
                                 },
                                 onMove = { item, albumName, onDone ->
                                     viewModel.moveItems(listOf(item), albumName, onDone)
@@ -188,7 +181,13 @@ class MainActivity : ComponentActivity() {
                                 onToggleSelection = { viewModel.toggleSelection(it) },
                                 onClearSelection = { viewModel.clearSelection() },
                                 onDeleteSelected = {
-                                    viewModel.trashItems(uiState.selectedItems.toList())
+                                    viewModel.deleteOrTrashItems(uiState.selectedItems.toList())
+                                },
+                                onRestoreSelected = {
+                                    viewModel.restoreItems(uiState.selectedItems.toList())
+                                },
+                                onEmptyTrash = {
+                                    viewModel.emptyTrash()
                                 },
                                 onMoveSelected = { targetAlbumName ->
                                     viewModel.moveItems(uiState.selectedItems.toList(), targetAlbumName)

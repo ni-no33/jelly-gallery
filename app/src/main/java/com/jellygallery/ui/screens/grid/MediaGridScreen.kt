@@ -44,6 +44,8 @@ fun MediaGridScreen(
     onToggleSelection: (MediaItem) -> Unit,
     onClearSelection: () -> Unit,
     onDeleteSelected: () -> Unit,
+    onRestoreSelected: () -> Unit = {},
+    onEmptyTrash: () -> Unit = {},
     onMoveSelected: (String) -> Unit,
     onColumnsChange: (Int) -> Unit
 ) {
@@ -58,6 +60,7 @@ fun MediaGridScreen(
 
     var showAlbumSheet by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
+    var showEmptyTrashDialog by remember { mutableStateOf(false) }
 
     var zoomScale by remember { mutableFloatStateOf(1f) }
     val transformableState = rememberTransformableState { zoomChange, _, _ ->
@@ -112,15 +115,30 @@ fun MediaGridScreen(
                 },
                 actions = {
                     if (uiState.isSelectionMode) {
-                        IconButton(onClick = { showMoveSheet = true }) {
-                            Icon(Icons.Default.DriveFileMove, contentDescription = "移動")
-                        }
-                        IconButton(onClick = onDeleteSelected) {
-                            Icon(Icons.Default.Delete, contentDescription = "削除", tint = MaterialTheme.colorScheme.error)
+                        if (uiState.isTrashAlbum) {
+                            IconButton(onClick = onRestoreSelected) {
+                                Icon(Icons.Default.Restore, contentDescription = "元に戻す", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = onDeleteSelected) {
+                                Icon(Icons.Default.DeleteForever, contentDescription = "完全に削除", tint = MaterialTheme.colorScheme.error)
+                            }
+                        } else {
+                            IconButton(onClick = { showMoveSheet = true }) {
+                                Icon(Icons.Default.DriveFileMove, contentDescription = "移動")
+                            }
+                            IconButton(onClick = onDeleteSelected) {
+                                Icon(Icons.Default.Delete, contentDescription = "削除", tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     } else {
-                        IconButton(onClick = { showAlbumSheet = true }) {
-                            Icon(Icons.Default.Folder, contentDescription = "アルバム一覧")
+                        if (uiState.isTrashAlbum && uiState.mediaList.isNotEmpty()) {
+                            TextButton(onClick = { showEmptyTrashDialog = true }) {
+                                Text("ゴミ箱を空にする", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                            }
+                        } else {
+                            IconButton(onClick = { showAlbumSheet = true }) {
+                                Icon(Icons.Default.Folder, contentDescription = "アルバム一覧")
+                            }
                         }
                     }
                 },
@@ -275,6 +293,29 @@ fun MediaGridScreen(
                 }
             }
         }
+    }
+
+    if (showEmptyTrashDialog) {
+        AlertDialog(
+            onDismissRequest = { showEmptyTrashDialog = false },
+            title = { Text("ゴミ箱を空にしますか？") },
+            text = { Text("ゴミ箱内のすべての写真・動画が完全に消去されます。この操作は取り消せません。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onEmptyTrash()
+                        showEmptyTrashDialog = false
+                    }
+                ) {
+                    Text("完全に削除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEmptyTrashDialog = false }) {
+                    Text("キャンセル")
+                }
+            }
+        )
     }
 
     if (showAlbumSheet) {
