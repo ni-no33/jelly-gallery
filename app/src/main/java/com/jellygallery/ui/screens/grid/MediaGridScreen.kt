@@ -1,6 +1,5 @@
 package com.jellygallery.ui.screens.grid
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,6 +8,7 @@ import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -35,10 +35,12 @@ import com.jellygallery.ui.viewmodel.GalleryUiState
 @Composable
 fun MediaGridScreen(
     uiState: GalleryUiState,
+    gridState: LazyGridState,
     onMediaClick: (MediaItem) -> Unit,
     onAlbumSelect: (Album?) -> Unit,
+    onFavoritesSelect: () -> Unit,
+    onTrashSelect: () -> Unit,
     onCreateNewAlbum: (String) -> Unit,
-    onToggleFavoriteFilter: () -> Unit,
     onToggleSelection: (MediaItem) -> Unit,
     onClearSelection: () -> Unit,
     onDeleteSelected: () -> Unit,
@@ -48,7 +50,6 @@ fun MediaGridScreen(
     val configuration = LocalConfiguration.current
     val screenWidthDp = configuration.screenWidthDp
 
-    // 小画面（Jelly Star等: < 360dp）ならデフォルト2列、通常スマホなら3列
     LaunchedEffect(screenWidthDp) {
         if (uiState.gridColumns == 2 && screenWidthDp >= 400) {
             onColumnsChange(3)
@@ -58,7 +59,6 @@ fun MediaGridScreen(
     var showAlbumSheet by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
 
-    // ピンチイン・ピンチアウトで列数変更
     var zoomScale by remember { mutableFloatStateOf(1f) }
     val transformableState = rememberTransformableState { zoomChange, _, _ ->
         zoomScale *= zoomChange
@@ -69,6 +69,13 @@ fun MediaGridScreen(
             onColumnsChange(uiState.gridColumns + 1)
             zoomScale = 1f
         }
+    }
+
+    val currentTitle = when {
+        uiState.isFavoritesAlbum -> "⭐ お気に入り"
+        uiState.isTrashAlbum -> "🗑️ ゴミ箱"
+        uiState.selectedAlbum != null -> uiState.selectedAlbum.name
+        else -> "すべてのメディア"
     }
 
     Scaffold(
@@ -86,7 +93,7 @@ fun MediaGridScreen(
                                 .padding(horizontal = 6.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = uiState.selectedAlbum?.name ?: "すべてのメディア",
+                                text = currentTitle,
                                 style = MaterialTheme.typography.titleMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -112,12 +119,8 @@ fun MediaGridScreen(
                             Icon(Icons.Default.Delete, contentDescription = "削除", tint = MaterialTheme.colorScheme.error)
                         }
                     } else {
-                        IconButton(onClick = onToggleFavoriteFilter) {
-                            Icon(
-                                imageVector = if (uiState.onlyFavorites) Icons.Default.Star else Icons.Default.StarBorder,
-                                contentDescription = "お気に入りで絞り込み",
-                                tint = if (uiState.onlyFavorites) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
+                        IconButton(onClick = { showAlbumSheet = true }) {
+                            Icon(Icons.Default.Folder, contentDescription = "アルバム一覧")
                         }
                     }
                 },
@@ -150,12 +153,17 @@ fun MediaGridScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        if (uiState.onlyFavorites) "お気に入りのメディアはありません" else "メディアが見つかりません",
+                        when {
+                            uiState.isFavoritesAlbum -> "お気に入りのメディアはありません"
+                            uiState.isTrashAlbum -> "ゴミ箱は空です"
+                            else -> "メディアが見つかりません"
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             } else {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Fixed(uiState.gridColumns),
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(2.dp),
@@ -192,7 +200,6 @@ fun MediaGridScreen(
                                 contentScale = ContentScale.Crop
                             )
 
-                            // 動画アイコン & 再生時間バッジ
                             if (item.isVideo) {
                                 Box(
                                     modifier = Modifier
@@ -220,7 +227,6 @@ fun MediaGridScreen(
                                 }
                             }
 
-                            // お気に入りマーク
                             if (item.isFavorite) {
                                 Icon(
                                     Icons.Default.Star,
@@ -233,7 +239,6 @@ fun MediaGridScreen(
                                 )
                             }
 
-                            // 選択モード時のチェック表示
                             if (uiState.isSelectionMode) {
                                 Box(
                                     modifier = Modifier
@@ -272,19 +277,21 @@ fun MediaGridScreen(
         }
     }
 
-    // アルバム切り替えシート
     if (showAlbumSheet) {
         AlbumBottomSheet(
             albums = uiState.albums,
             selectedAlbum = uiState.selectedAlbum,
+            isFavoritesSelected = uiState.isFavoritesAlbum,
+            isTrashSelected = uiState.isTrashAlbum,
             isMoveMode = false,
             onAlbumSelected = onAlbumSelect,
+            onFavoritesSelected = onFavoritesSelect,
+            onTrashSelected = onTrashSelect,
             onCreateNewAlbum = onCreateNewAlbum,
             onDismiss = { showAlbumSheet = false }
         )
     }
 
-    // ファイル移動先選択シート
     if (showMoveSheet) {
         AlbumBottomSheet(
             albums = uiState.albums,
@@ -304,4 +311,3 @@ fun MediaGridScreen(
         )
     }
 }
-

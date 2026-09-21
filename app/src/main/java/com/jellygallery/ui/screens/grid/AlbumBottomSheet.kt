@@ -7,9 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,8 +23,12 @@ import com.jellygallery.data.model.Album
 fun AlbumBottomSheet(
     albums: List<Album>,
     selectedAlbum: Album?,
+    isFavoritesSelected: Boolean = false,
+    isTrashSelected: Boolean = false,
     isMoveMode: Boolean = false,
     onAlbumSelected: (Album?) -> Unit,
+    onFavoritesSelected: () -> Unit = {},
+    onTrashSelected: () -> Unit = {},
     onCreateNewAlbum: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -53,7 +55,7 @@ fun AlbumBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isMoveMode) "移動先アルバムを選択" else "アルバムを選択",
+                    text = if (isMoveMode) "移動先アルバムを選択" else "アルバム・フォルダ",
                     style = MaterialTheme.typography.titleMedium
                 )
                 TextButton(
@@ -67,16 +69,18 @@ fun AlbumBottomSheet(
             }
 
             LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (!isMoveMode) {
+                    // すべてのメディア
                     item {
+                        val isAllSelected = selectedAlbum == null && !isFavoritesSelected && !isTrashSelected
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (selectedAlbum == null) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+                                .background(if (isAllSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
                                 .clickable {
                                     onAlbumSelected(null)
                                     onDismiss()
@@ -94,10 +98,60 @@ fun AlbumBottomSheet(
                             Text("すべてのメディア", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
+
+                    // ⭐ お気に入り（フォルダを超えて一まとめ）
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isFavoritesSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+                                .clickable {
+                                    onFavoritesSelected()
+                                    onDismiss()
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.Star,
+                                contentDescription = null,
+                                modifier = Modifier.size(36.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("⭐ お気に入り（全フォルダ）", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+
+                    // 🗑️ ゴミ箱（30日間の一時保管）
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isTrashSelected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+                                .clickable {
+                                    onTrashSelected()
+                                    onDismiss()
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteSweep,
+                                contentDescription = null,
+                                modifier = Modifier.size(36.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("🗑️ ゴミ箱（セーフティ）", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
 
                 items(albums) { album ->
-                    val isSelected = selectedAlbum?.id == album.id
+                    val isSelected = selectedAlbum?.id == album.id && !isFavoritesSelected && !isTrashSelected
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

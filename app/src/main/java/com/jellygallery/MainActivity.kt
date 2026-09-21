@@ -1,9 +1,12 @@
 package com.jellygallery
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -12,6 +15,7 @@ import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +25,7 @@ import com.jellygallery.ui.screens.grid.MediaGridScreen
 import com.jellygallery.ui.screens.viewer.MediaViewerScreen
 import com.jellygallery.ui.theme.JellyGalleryTheme
 import com.jellygallery.ui.viewmodel.GalleryViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -33,6 +38,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             JellyGalleryTheme {
                 val uiState by viewModel.uiState.collectAsState()
+                val coroutineScope = rememberCoroutineScope()
+                val gridState = rememberLazyGridState()
                 var viewingIndex by remember { mutableStateOf<Int?>(null) }
 
                 // 権限要求ランチャー
@@ -48,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
                     hasPermission = imagesGranted || videosGranted || visualSelected
                     if (hasPermission) {
+                        viewModel.checkPermissions()
                         viewModel.loadMedia()
                         viewModel.loadAlbums()
                     }
@@ -60,7 +68,13 @@ class MainActivity : ComponentActivity() {
                     viewModel.onPendingIntentResult(result.resultCode == RESULT_OK)
                 }
 
-                // pendingIntent が発行されたらシステムダイアログを起動
+                // すべてのファイル管理権限（ダイアログなし削除）用ランチャー
+                val manageStorageLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) {
+                    viewModel.checkPermissions()
+                }
+
                 LaunchedEffect(uiState.pendingIntent) {
                     uiState.pendingIntent?.let { pi ->
                         val request = IntentSenderRequest.Builder(pi.intentSender).build()
@@ -85,7 +99,6 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     if (!hasPermission && uiState.mediaList.isEmpty() && !uiState.isLoading) {
-                        // 権限要求画面
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -99,7 +112,7 @@ class MainActivity : ComponentActivity() {
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "端末内の写真や動画を表示・整理するために権限が必要です。",
+                                text = "写真・動画を表示・整理するためにメディアアクセス権限が必要です。",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -123,7 +136,6 @@ class MainActivity : ComponentActivity() {
                     } else {
                         val currentViewing = viewingIndex
                         if (currentViewing != null && currentViewing in uiState.mediaList.indices) {
-                            // ビューアー表示時：自動回転を許可
                             DisposableEffect(Unit) {
                                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
                                 onDispose {
@@ -135,13 +147,24 @@ class MainActivity : ComponentActivity() {
                                 mediaList = uiState.mediaList,
                                 initialIndex = currentViewing,
                                 albums = uiState.albums,
-                                onBack = { viewingIndex = null },
+                                onBack = {
+                                    // 一覧に戻る際、直前まで見ていた位置にグリッドをスクロール
+                                    currentViewing.let { idx ->
+                                        coroutineScope.launch {
+                                            gridState.scrollToItem(idx.coerceIn(0, (uiState.mediaList.size - 1).coerceAtLeast(0)))
+                                        }
+                                    }
+                                    viewingIndex = null
+                                },
                                 onToggleFavorite = { viewModel.toggleFavorite(it) },
-                                onDelete = { viewModel.deleteItems(listOf(it)) },
-                                onMove = { item, albumName -> viewModel.moveItems(listOf(item), albumName) }
+                                onTrash = { item, onDone ->
+                                    viewModel.trashItems(listOf(item), onDone)
+                                },
+                                onMove = { item, albumName, onDone ->
+                                    viewModel.moveItems(listOf(item), albumName, onDone)
+                                }
                             )
                         } else {
-                            // 一覧画面表示時：縦向き固定（Jelly Star での使いやすさ重視）
                             DisposableEffect(Unit) {
                                 requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                 onDispose {}
@@ -149,6 +172,7 @@ class MainActivity : ComponentActivity() {
 
                             MediaGridScreen(
                                 uiState = uiState,
+                                gridState = gridState,
                                 onMediaClick = { clickedItem ->
                                     val index = uiState.mediaList.indexOf(clickedItem)
                                     if (index != -1) {
@@ -156,15 +180,15 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onAlbumSelect = { album -> viewModel.selectAlbum(album) },
+                                onFavoritesSelect = { viewModel.selectFavoritesAlbum() },
+                                onTrashSelect = { viewModel.selectTrashAlbum() },
                                 onCreateNewAlbum = { newName ->
-                                    // 新規アルバムが作成されたらそのアルバムを選択
                                     viewModel.loadAlbums()
                                 },
-                                onToggleFavoriteFilter = { viewModel.toggleFavoritesFilter() },
                                 onToggleSelection = { viewModel.toggleSelection(it) },
                                 onClearSelection = { viewModel.clearSelection() },
                                 onDeleteSelected = {
-                                    viewModel.deleteItems(uiState.selectedItems.toList())
+                                    viewModel.trashItems(uiState.selectedItems.toList())
                                 },
                                 onMoveSelected = { targetAlbumName ->
                                     viewModel.moveItems(uiState.selectedItems.toList(), targetAlbumName)

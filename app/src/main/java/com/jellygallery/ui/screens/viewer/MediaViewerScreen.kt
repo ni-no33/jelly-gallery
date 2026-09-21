@@ -1,20 +1,18 @@
 package com.jellygallery.ui.screens.viewer
 
 import android.content.Intent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +30,7 @@ import coil.compose.AsyncImage
 import com.jellygallery.data.model.Album
 import com.jellygallery.data.model.MediaItem
 import com.jellygallery.ui.screens.grid.AlbumBottomSheet
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -40,30 +40,57 @@ fun MediaViewerScreen(
     albums: List<Album>,
     onBack: () -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
-    onDelete: (MediaItem) -> Unit,
-    onMove: (MediaItem, String) -> Unit
+    onTrash: (MediaItem, onDone: () -> Unit) -> Unit,
+    onMove: (MediaItem, String, onDone: () -> Unit) -> Unit
 ) {
     val context = LocalContext.current
-    val pagerState = rememberPagerState(initialPage = initialIndex.coerceIn(0, (mediaList.size - 1).coerceAtLeast(0))) {
-        mediaList.size
+    val coroutineScope = rememberCoroutineScope()
+
+    // 戻るボタンでアプリが落ちず、一覧に戻る
+    BackHandler {
+        onBack()
     }
+
+    val pageCount = mediaList.size
+    if (pageCount == 0) {
+        LaunchedEffect(Unit) {
+            onBack()
+        }
+        return
+    }
+
+    val safeInitial = initialIndex.coerceIn(0, pageCount - 1)
+    val pagerState = rememberPagerState(initialPage = safeInitial) { pageCount }
 
     var showControls by remember { mutableStateOf(true) }
     var showMoveSheet by remember { mutableStateOf(false) }
 
-    val currentItem = mediaList.getOrNull(pagerState.currentPage)
+    val currentPage = pagerState.currentPage.coerceIn(0, pageCount - 1)
+    val currentItem = mediaList.getOrNull(currentPage)
+
+    // 次の画像へスムーズに進むヘルパー
+    fun advanceToNextAfterDelete() {
+        if (pageCount <= 1) {
+            onBack()
+        } else if (currentPage >= pageCount - 1) {
+            coroutineScope.launch {
+                pagerState.animateScrollToPage(currentPage - 1)
+            }
+        }
+        // それ以外は自動的に次のインデックスのアイテムが繰り上がる
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        if (mediaList.isNotEmpty() && currentItem != null) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize(),
-                key = { mediaList[it].id }
-            ) { page ->
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            key = { index -> if (index in mediaList.indices) mediaList[index].id else index }
+        ) { page ->
+            if (page in mediaList.indices) {
                 val item = mediaList[page]
 
                 if (item.isVideo) {
@@ -73,12 +100,14 @@ fun MediaViewerScreen(
                     var offsetX by remember { mutableFloatStateOf(0f) }
                     var offsetY by remember { mutableFloatStateOf(0f) }
 
+                    // 拡大時のみパン・ドラッグを有効化し、等倍時は HorizontalPager にスワイプを完全に委ねる
                     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-                        scale = (scale * zoomChange).coerceIn(1f, 5f)
-                        if (scale > 1f) {
+                        scale = (scale * zoomChange).coerceIn(1f, 4f)
+                        if (scale > 1.05f) {
                             offsetX += panChange.x
                             offsetY += panChange.y
                         } else {
+                            scale = 1f
                             offsetX = 0f
                             offsetY = 0f
                         }
@@ -87,13 +116,30 @@ fun MediaViewerScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                showControls = !showControls
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        showControls = !showControls
+                                    },
+                                    onDoubleTap = {
+                                        // ダブルタップで一発拡大（2.5倍）↔ 等倍
+                                        if (scale > 1.2f) {
+                                            scale = 1f
+                                            offsetX = 0f
+                                            offsetY = 0f
+                                        } else {
+                                            scale = 2.5f
+                                        }
+                                    }
+                                )
                             }
-                            .transformable(transformState),
+                            .then(
+                                if (scale > 1.05f) {
+                                    Modifier.transformable(transformState)
+                                } else {
+                                    Modifier
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         AsyncImage(
@@ -131,7 +177,7 @@ fun MediaViewerScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${pagerState.currentPage + 1} / ${mediaList.size}",
+                            text = "${currentPage + 1} / $pageCount",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -150,7 +196,7 @@ fun MediaViewerScreen(
             )
         }
 
-        // 下部アクションバー（Jelly Star などの極小画面でも親指で押しやすい大型ボタン配置）
+        // 下部アクションバー（大型ボタン・親指サムゾーン）
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
@@ -218,14 +264,20 @@ fun MediaViewerScreen(
                         )
                     }
 
-                    // 削除
+                    // ゴミ箱へ（削除後、即座に次の画像へスッと進む）
                     IconButton(
-                        onClick = { currentItem?.let { onDelete(it) } },
+                        onClick = {
+                            currentItem?.let { item ->
+                                onTrash(item) {
+                                    advanceToNextAfterDelete()
+                                }
+                            }
+                        },
                         modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             Icons.Default.Delete,
-                            contentDescription = "削除",
+                            contentDescription = "ゴミ箱へ",
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(28.dp)
                         )
@@ -243,16 +295,19 @@ fun MediaViewerScreen(
             isMoveMode = true,
             onAlbumSelected = { album ->
                 if (album != null) {
-                    onMove(currentItem, album.name)
+                    onMove(currentItem, album.name) {
+                        advanceToNextAfterDelete()
+                    }
                     showMoveSheet = false
                 }
             },
             onCreateNewAlbum = { newName ->
-                onMove(currentItem, newName)
+                onMove(currentItem, newName) {
+                    advanceToNextAfterDelete()
+                }
                 showMoveSheet = false
             },
             onDismiss = { showMoveSheet = false }
         )
     }
 }
-

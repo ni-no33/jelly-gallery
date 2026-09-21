@@ -16,12 +16,14 @@ data class GalleryUiState(
     val mediaList: List<MediaItem> = emptyList(),
     val albums: List<Album> = emptyList(),
     val selectedAlbum: Album? = null,
-    val onlyFavorites: Boolean = false,
+    val isFavoritesAlbum: Boolean = false,
+    val isTrashAlbum: Boolean = false,
     val gridColumns: Int = 2,
     val selectedItems: Set<MediaItem> = emptySet(),
     val isSelectionMode: Boolean = false,
     val isLoading: Boolean = false,
-    val pendingIntent: PendingIntent? = null
+    val pendingIntent: PendingIntent? = null,
+    val hasManageStoragePermission: Boolean = false
 )
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
@@ -31,19 +33,27 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     private val _uiState = MutableStateFlow(GalleryUiState())
     val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
 
-    private var pendingMoveAction: (suspend () -> Unit)? = null
+    private var onPendingSuccessAction: (suspend () -> Unit)? = null
 
     init {
+        checkPermissions()
         loadMedia()
         loadAlbums()
+    }
+
+    fun checkPermissions() {
+        _uiState.value = _uiState.value.copy(
+            hasManageStoragePermission = repository.hasManageStoragePermission()
+        )
     }
 
     fun loadMedia() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
             val list = repository.getMediaList(
-                albumPath = _uiState.value.selectedAlbum?.name,
-                onlyFavorites = _uiState.value.onlyFavorites
+                albumPath = if (!_uiState.value.isFavoritesAlbum && !_uiState.value.isTrashAlbum) _uiState.value.selectedAlbum?.name else null,
+                onlyFavorites = _uiState.value.isFavoritesAlbum,
+                includeTrashed = _uiState.value.isTrashAlbum
             )
             _uiState.value = _uiState.value.copy(mediaList = list, isLoading = false)
         }
@@ -57,13 +67,29 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun selectAlbum(album: Album?) {
-        _uiState.value = _uiState.value.copy(selectedAlbum = album)
+        _uiState.value = _uiState.value.copy(
+            selectedAlbum = album,
+            isFavoritesAlbum = false,
+            isTrashAlbum = false
+        )
         loadMedia()
     }
 
-    fun toggleFavoritesFilter() {
-        val next = !_uiState.value.onlyFavorites
-        _uiState.value = _uiState.value.copy(onlyFavorites = next)
+    fun selectFavoritesAlbum() {
+        _uiState.value = _uiState.value.copy(
+            selectedAlbum = null,
+            isFavoritesAlbum = true,
+            isTrashAlbum = false
+        )
+        loadMedia()
+    }
+
+    fun selectTrashAlbum() {
+        _uiState.value = _uiState.value.copy(
+            selectedAlbum = null,
+            isFavoritesAlbum = false,
+            isTrashAlbum = true
+        )
         loadMedia()
     }
 
@@ -92,12 +118,36 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    fun deleteItems(items: List<MediaItem>) {
+    /**
+     * ゴミ箱へ移動（ダイアログなし権限があれば一発即座に実行）
+     */
+    fun trashItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
         if (items.isEmpty()) return
-        val uris = items.map { it.uri }
-        val pi = repository.createDeletePendingIntent(uris)
-        if (pi != null) {
-            _uiState.value = _uiState.value.copy(pendingIntent = pi)
+
+        if (repository.hasManageStoragePermission()) {
+            // ダイアログなしで即座にゴミ箱/削除
+            viewModelScope.launch {
+                for (item in items) {
+                    repository.directDeleteOrTrash(item)
+                }
+                loadMedia()
+                loadAlbums()
+                clearSelection()
+                onComplete?.invoke()
+            }
+        } else {
+            // システム確認ダイアログ
+            val uris = items.map { it.uri }
+            val pi = repository.createTrashPendingIntent(uris, true)
+            if (pi != null) {
+                onPendingSuccessAction = {
+                    loadMedia()
+                    loadAlbums()
+                    clearSelection()
+                    onComplete?.invoke()
+                }
+                _uiState.value = _uiState.value.copy(pendingIntent = pi)
+            }
         }
     }
 
@@ -105,18 +155,20 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         val targetState = !item.isFavorite
         val pi = repository.createFavoritePendingIntent(listOf(item.uri), targetState)
         if (pi != null) {
+            onPendingSuccessAction = {
+                loadMedia()
+            }
             _uiState.value = _uiState.value.copy(pendingIntent = pi)
         }
     }
 
-    fun moveItems(items: List<MediaItem>, targetAlbumName: String) {
+    fun moveItems(items: List<MediaItem>, targetAlbumName: String, onComplete: (() -> Unit)? = null) {
         if (items.isEmpty()) return
         val targetPath = "Pictures/$targetAlbumName/"
         val uris = items.map { it.uri }
 
         viewModelScope.launch {
             try {
-                // まず直接移動を試みる
                 var successCount = 0
                 for (item in items) {
                     if (repository.moveMedia(item, targetPath)) {
@@ -127,18 +179,19 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                     loadMedia()
                     loadAlbums()
                     clearSelection()
+                    onComplete?.invoke()
                 }
             } catch (e: SecurityException) {
-                // 書き込み権限が必要な場合、システムダイアログを表示
                 val pi = repository.createWritePendingIntent(uris)
                 if (pi != null) {
-                    pendingMoveAction = {
+                    onPendingSuccessAction = {
                         for (item in items) {
                             repository.moveMedia(item, targetPath)
                         }
                         loadMedia()
                         loadAlbums()
                         clearSelection()
+                        onComplete?.invoke()
                     }
                     _uiState.value = _uiState.value.copy(pendingIntent = pi)
                 }
@@ -150,14 +203,11 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         _uiState.value = _uiState.value.copy(pendingIntent = null)
         if (isSuccess) {
             viewModelScope.launch {
-                pendingMoveAction?.invoke()
-                pendingMoveAction = null
-                loadMedia()
-                loadAlbums()
-                clearSelection()
+                onPendingSuccessAction?.invoke()
+                onPendingSuccessAction = null
             }
         } else {
-            pendingMoveAction = null
+            onPendingSuccessAction = null
         }
     }
 }

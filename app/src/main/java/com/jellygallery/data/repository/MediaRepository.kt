@@ -7,6 +7,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.os.Environment
 import android.provider.MediaStore
 import com.jellygallery.data.model.Album
 import com.jellygallery.data.model.MediaItem
@@ -18,7 +20,19 @@ class MediaRepository(private val context: Context) {
 
     private val contentResolver: ContentResolver get() = context.contentResolver
 
-    suspend fun getMediaList(albumPath: String? = null, onlyFavorites: Boolean = false): List<MediaItem> = withContext(Dispatchers.IO) {
+    fun hasManageStoragePermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            true
+        }
+    }
+
+    suspend fun getMediaList(
+        albumPath: String? = null,
+        onlyFavorites: Boolean = false,
+        includeTrashed: Boolean = false
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
         val mediaList = mutableListOf<MediaItem>()
 
         val projection = arrayOf(
@@ -40,7 +54,6 @@ class MediaRepository(private val context: Context) {
         val selectionList = mutableListOf<String>()
         val selectionArgsList = mutableListOf<String>()
 
-        // 画像または動画
         selectionList.add("(${MediaStore.Files.FileColumns.MEDIA_TYPE} = ? OR ${MediaStore.Files.FileColumns.MEDIA_TYPE} = ?)")
         selectionArgsList.add(MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE.toString())
         selectionArgsList.add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString())
@@ -59,24 +72,42 @@ class MediaRepository(private val context: Context) {
         val sortOrder = "${MediaStore.MediaColumns.DATE_TAKEN} DESC, ${MediaStore.MediaColumns.DATE_ADDED} DESC"
 
         try {
-            contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
-                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-                val dateAddedCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
-                val dateTakenCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_TAKEN)
-                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-                val widthCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.WIDTH)
-                val heightCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.HEIGHT)
-                val bucketCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
+            val queryArgs = Bundle().apply {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    putInt(
+                        MediaStore.QUERY_ARG_MATCH_TRASHED,
+                        if (includeTrashed) MediaStore.MATCH_ONLY else MediaStore.MATCH_EXCLUDE
+                    )
+                }
+            }
+
+            val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                contentResolver.query(uri, projection, queryArgs, null)
+            } else {
+                contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
+            }
+
+            cursor?.use { c ->
+                val idCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val dataCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA)
+                val nameCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val mimeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                val dateAddedCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED)
+                val dateTakenCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_TAKEN)
+                val sizeCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                val widthCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.WIDTH)
+                val heightCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.HEIGHT)
+                val bucketCol = c.getColumnIndexOrThrow(MediaStore.MediaColumns.BUCKET_DISPLAY_NAME)
                 val favCol = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    cursor.getColumnIndex(MediaStore.MediaColumns.IS_FAVORITE)
+                    c.getColumnIndex(MediaStore.MediaColumns.IS_FAVORITE)
                 } else -1
 
-                while (cursor.moveToNext()) {
-                    val id = cursor.getLong(idCol)
-                    val mime = cursor.getString(mimeCol) ?: ""
+                while (c.moveToNext()) {
+                    val id = c.getLong(idCol)
+                    val mime = c.getString(mimeCol) ?: ""
                     val isVideo = mime.startsWith("video/")
                     val contentUri = if (isVideo) {
                         ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
@@ -84,22 +115,22 @@ class MediaRepository(private val context: Context) {
                         ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
                     }
 
-                    val isFavorite = if (favCol >= 0) cursor.getInt(favCol) == 1 else false
-                    val albumName = cursor.getString(bucketCol) ?: "その他"
+                    val isFavorite = if (favCol >= 0) c.getInt(favCol) == 1 else false
+                    val albumName = c.getString(bucketCol) ?: "その他"
 
                     mediaList.add(
                         MediaItem(
                             id = id,
                             uri = contentUri,
-                            path = cursor.getString(dataCol) ?: "",
-                            displayName = cursor.getString(nameCol) ?: "",
+                            path = c.getString(dataCol) ?: "",
+                            displayName = c.getString(nameCol) ?: "",
                             mimeType = mime,
                             isVideo = isVideo,
-                            dateAdded = cursor.getLong(dateAddedCol),
-                            dateTaken = cursor.getLong(dateTakenCol),
-                            size = cursor.getLong(sizeCol),
-                            width = cursor.getInt(widthCol),
-                            height = cursor.getInt(heightCol),
+                            dateAdded = c.getLong(dateAddedCol),
+                            dateTaken = c.getLong(dateTakenCol),
+                            size = c.getLong(sizeCol),
+                            width = c.getInt(widthCol),
+                            height = c.getInt(heightCol),
                             albumName = albumName,
                             isFavorite = isFavorite
                         )
@@ -139,7 +170,18 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
-     * 削除要求用の PendingIntent を生成（Android 11+）
+     * ゴミ箱へ移動（セーフティ）
+     */
+    fun createTrashPendingIntent(uris: List<Uri>, trash: Boolean = true): PendingIntent? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            MediaStore.createTrashRequest(contentResolver, uris, trash)
+        } else {
+            null
+        }
+    }
+
+    /**
+     * 完全削除（ゴミ箱から消す場合など）
      */
     fun createDeletePendingIntent(uris: List<Uri>): PendingIntent? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -150,8 +192,25 @@ class MediaRepository(private val context: Context) {
     }
 
     /**
-     * お気に入り変更要求用の PendingIntent を生成（Android 11+）
+     * MANAGE_EXTERNAL_STORAGE が許可されている場合、ダイアログなしで直接削除/ゴミ箱移動
      */
+    suspend fun directDeleteOrTrash(item: MediaItem): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val file = File(item.path)
+            if (file.exists()) {
+                val deleted = file.delete()
+                if (deleted) {
+                    contentResolver.delete(item.uri, null, null)
+                    return@withContext true
+                }
+            }
+            contentResolver.delete(item.uri, null, null) > 0
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     fun createFavoritePendingIntent(uris: List<Uri>, isFavorite: Boolean): PendingIntent? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             MediaStore.createFavoriteRequest(contentResolver, uris, isFavorite)
@@ -160,9 +219,6 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    /**
-     * ファイルの書き込み・変更要求用の PendingIntent を生成（Android 11+ で他アプリのファイルを移動する際に必須）
-     */
     fun createWritePendingIntent(uris: List<Uri>): PendingIntent? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             MediaStore.createWriteRequest(contentResolver, uris)
@@ -171,10 +227,6 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    /**
-     * ファイルを指定フォルダ（アルバム）に移動
-     * relativePath 例: "Pictures/MyAlbum/" または "DCIM/Camera/"
-     */
     suspend fun moveMedia(item: MediaItem, targetRelativePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val sanitizedPath = if (targetRelativePath.endsWith("/")) targetRelativePath else "$targetRelativePath/"
@@ -186,7 +238,6 @@ class MediaRepository(private val context: Context) {
             val rows = contentResolver.update(item.uri, values, null, null)
             rows > 0
         } catch (e: SecurityException) {
-            // WriteRequest 認可が必要な場合
             throw e
         } catch (e: Exception) {
             e.printStackTrace()
