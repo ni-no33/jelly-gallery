@@ -1,7 +1,9 @@
 package com.jellygallery
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -179,7 +181,24 @@ class MainActivity : ComponentActivity() {
                                     viewModel.loadAlbums()
                                 },
                                 onToggleSelection = { viewModel.toggleSelection(it) },
+                                onSelectAll = { viewModel.selectAll() },
                                 onClearSelection = { viewModel.clearSelection() },
+                                onShareSelected = {
+                                    val items = uiState.selectedItems.toList()
+                                    if (items.isNotEmpty()) {
+                                        val uris = ArrayList<Uri>().apply {
+                                            addAll(items.map { it.uri })
+                                        }
+                                        val sendIntent = Intent().apply {
+                                            action = Intent.ACTION_SEND_MULTIPLE
+                                            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                                            type = "*/*"
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        val shareIntent = Intent.createChooser(sendIntent, "${uris.size}件のメディアを共有")
+                                        startActivity(shareIntent)
+                                    }
+                                },
                                 onDeleteSelected = {
                                     viewModel.deleteOrTrashItems(uiState.selectedItems.toList())
                                 },

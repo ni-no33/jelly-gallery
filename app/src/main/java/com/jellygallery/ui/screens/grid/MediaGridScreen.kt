@@ -42,7 +42,9 @@ fun MediaGridScreen(
     onTrashSelect: () -> Unit,
     onCreateNewAlbum: (String) -> Unit,
     onToggleSelection: (MediaItem) -> Unit,
+    onSelectAll: () -> Unit = {},
     onClearSelection: () -> Unit,
+    onShareSelected: () -> Unit = {},
     onDeleteSelected: () -> Unit,
     onRestoreSelected: () -> Unit = {},
     onEmptyTrash: () -> Unit = {},
@@ -115,6 +117,14 @@ fun MediaGridScreen(
                 },
                 actions = {
                     if (uiState.isSelectionMode) {
+                        // 全選択ボタン
+                        IconButton(onClick = onSelectAll) {
+                            Icon(Icons.Default.SelectAll, contentDescription = "すべて選択")
+                        }
+                        // 複数共有（クイックシェア対応）
+                        IconButton(onClick = onShareSelected) {
+                            Icon(Icons.Default.Share, contentDescription = "共有")
+                        }
                         if (uiState.isTrashAlbum) {
                             IconButton(onClick = onRestoreSelected) {
                                 Icon(Icons.Default.Restore, contentDescription = "元に戻す", tint = MaterialTheme.colorScheme.primary)

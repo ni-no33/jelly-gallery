@@ -111,6 +111,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
+    fun selectAll() {
+        _uiState.value = _uiState.value.copy(
+            selectedItems = _uiState.value.mediaList.toSet(),
+            isSelectionMode = true
+        )
+    }
+
     fun clearSelection() {
         _uiState.value = _uiState.value.copy(
             selectedItems = emptySet(),
@@ -274,3 +281,4 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 }
+
