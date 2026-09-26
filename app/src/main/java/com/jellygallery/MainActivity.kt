@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.jellygallery.data.model.AlbumSortOrder
 import com.jellygallery.ui.screens.grid.MediaGridScreen
 import com.jellygallery.ui.screens.viewer.MediaViewerScreen
 import com.jellygallery.ui.theme.JellyGalleryTheme
@@ -128,8 +129,9 @@ class MainActivity : ComponentActivity() {
                     } else {
                         val currentViewing = viewingIndex
                         if (currentViewing != null && currentViewing in uiState.mediaList.indices) {
+                            // ビューアー表示時: スマホの自動回転設定（ON/OFF）に従う
                             DisposableEffect(Unit) {
-                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+                                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
                                 onDispose {
                                     requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
                                 }
@@ -177,6 +179,17 @@ class MainActivity : ComponentActivity() {
                                 onAlbumSelect = { album -> viewModel.selectAlbum(album) },
                                 onFavoritesSelect = { viewModel.selectFavoritesAlbum() },
                                 onTrashSelect = { viewModel.selectTrashAlbum() },
+                                onToggleAlbumSort = {
+                                    val next = if (uiState.albumSortOrder == AlbumSortOrder.COUNT_DESC) {
+                                        AlbumSortOrder.NAME_ASC
+                                    } else {
+                                        AlbumSortOrder.COUNT_DESC
+                                    }
+                                    viewModel.setAlbumSortOrder(next)
+                                },
+                                onSetMediaSortOrder = { order ->
+                                    viewModel.setMediaSortOrder(order)
+                                },
                                 onCreateNewAlbum = { newName ->
                                     viewModel.loadAlbums()
                                 },

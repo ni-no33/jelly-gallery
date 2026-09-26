@@ -11,7 +11,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import com.jellygallery.data.model.Album
+import com.jellygallery.data.model.AlbumSortOrder
 import com.jellygallery.data.model.MediaItem
+import com.jellygallery.data.model.MediaSortOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -31,7 +33,8 @@ class MediaRepository(private val context: Context) {
     suspend fun getMediaList(
         albumPath: String? = null,
         onlyFavorites: Boolean = false,
-        includeTrashed: Boolean = false
+        includeTrashed: Boolean = false,
+        sortOrder: MediaSortOrder = MediaSortOrder.DATE_DESC
     ): List<MediaItem> = withContext(Dispatchers.IO) {
         val mediaList = mutableListOf<MediaItem>()
 
@@ -69,13 +72,19 @@ class MediaRepository(private val context: Context) {
 
         val selection = selectionList.joinToString(" AND ")
         val selectionArgs = selectionArgsList.toTypedArray()
-        val sortOrder = "${MediaStore.MediaColumns.DATE_TAKEN} DESC, ${MediaStore.MediaColumns.DATE_ADDED} DESC"
+
+        val sortClause = when (sortOrder) {
+            MediaSortOrder.DATE_DESC -> "${MediaStore.MediaColumns.DATE_TAKEN} DESC, ${MediaStore.MediaColumns.DATE_ADDED} DESC"
+            MediaSortOrder.DATE_ASC -> "${MediaStore.MediaColumns.DATE_TAKEN} ASC, ${MediaStore.MediaColumns.DATE_ADDED} ASC"
+            MediaSortOrder.NAME_ASC -> "${MediaStore.MediaColumns.DISPLAY_NAME} ASC"
+            MediaSortOrder.NAME_DESC -> "${MediaStore.MediaColumns.DISPLAY_NAME} DESC"
+        }
 
         try {
             val queryArgs = Bundle().apply {
                 putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
                 putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortOrder)
+                putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sortClause)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     putInt(
                         MediaStore.QUERY_ARG_MATCH_TRASHED,
@@ -87,7 +96,7 @@ class MediaRepository(private val context: Context) {
             val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 contentResolver.query(uri, projection, queryArgs, null)
             } else {
-                contentResolver.query(uri, projection, selection, selectionArgs, sortOrder)
+                contentResolver.query(uri, projection, selection, selectionArgs, sortClause)
             }
 
             cursor?.use { c ->
@@ -144,7 +153,7 @@ class MediaRepository(private val context: Context) {
         mediaList
     }
 
-    suspend fun getAlbums(): List<Album> = withContext(Dispatchers.IO) {
+    suspend fun getAlbums(sortOrder: AlbumSortOrder = AlbumSortOrder.COUNT_DESC): List<Album> = withContext(Dispatchers.IO) {
         val albumMap = mutableMapOf<String, Pair<Int, Uri?>>()
         val allMedia = getMediaList()
 
@@ -158,7 +167,7 @@ class MediaRepository(private val context: Context) {
             }
         }
 
-        albumMap.map { (name, info) ->
+        val list = albumMap.map { (name, info) ->
             Album(
                 id = name,
                 name = name,
@@ -166,12 +175,14 @@ class MediaRepository(private val context: Context) {
                 count = info.first,
                 thumbnailUri = info.second
             )
-        }.sortedByDescending { it.count }
+        }
+
+        when (sortOrder) {
+            AlbumSortOrder.COUNT_DESC -> list.sortedByDescending { it.count }
+            AlbumSortOrder.NAME_ASC -> list.sortedBy { it.name.lowercase() }
+        }
     }
 
-    /**
-     * ゴミ箱へ移動（セーフティ）
-     */
     fun createTrashPendingIntent(uris: List<Uri>, trash: Boolean): PendingIntent? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             MediaStore.createTrashRequest(contentResolver, uris, trash)
@@ -180,9 +191,6 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    /**
-     * 完全削除（ゴミ箱から消す場合など）
-     */
     fun createDeletePendingIntent(uris: List<Uri>): PendingIntent? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             MediaStore.createDeleteRequest(contentResolver, uris)
@@ -191,9 +199,6 @@ class MediaRepository(private val context: Context) {
         }
     }
 
-    /**
-     * MANAGE_EXTERNAL_STORAGE が許可されている場合、直接ファイル削除
-     */
     suspend fun directDeleteOrTrash(item: MediaItem): Boolean = withContext(Dispatchers.IO) {
         try {
             val file = File(item.path)

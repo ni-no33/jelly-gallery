@@ -28,7 +28,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.jellygallery.data.model.Album
+import com.jellygallery.data.model.AlbumSortOrder
 import com.jellygallery.data.model.MediaItem
+import com.jellygallery.data.model.MediaSortOrder
 import com.jellygallery.ui.viewmodel.GalleryUiState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -40,6 +42,8 @@ fun MediaGridScreen(
     onAlbumSelect: (Album?) -> Unit,
     onFavoritesSelect: () -> Unit,
     onTrashSelect: () -> Unit,
+    onToggleAlbumSort: () -> Unit,
+    onSetMediaSortOrder: (MediaSortOrder) -> Unit,
     onCreateNewAlbum: (String) -> Unit,
     onToggleSelection: (MediaItem) -> Unit,
     onSelectAll: () -> Unit = {},
@@ -63,6 +67,7 @@ fun MediaGridScreen(
     var showAlbumSheet by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     var showEmptyTrashDialog by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
 
     var zoomScale by remember { mutableFloatStateOf(1f) }
     val transformableState = rememberTransformableState { zoomChange, _, _ ->
@@ -117,11 +122,9 @@ fun MediaGridScreen(
                 },
                 actions = {
                     if (uiState.isSelectionMode) {
-                        // 全選択ボタン
                         IconButton(onClick = onSelectAll) {
                             Icon(Icons.Default.SelectAll, contentDescription = "すべて選択")
                         }
-                        // 複数共有（クイックシェア対応）
                         IconButton(onClick = onShareSelected) {
                             Icon(Icons.Default.Share, contentDescription = "共有")
                         }
@@ -146,6 +149,37 @@ fun MediaGridScreen(
                                 Text("ゴミ箱を空にする", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                             }
                         } else {
+                            // 並び替えメニュー
+                            Box {
+                                IconButton(onClick = { showSortMenu = true }) {
+                                    Icon(Icons.Default.Sort, contentDescription = "並び替え")
+                                }
+                                DropdownMenu(
+                                    expanded = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false }
+                                ) {
+                                    MediaSortOrder.values().forEach { order ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    if (uiState.mediaSortOrder == order) {
+                                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                    } else {
+                                                        Spacer(modifier = Modifier.width(26.dp))
+                                                    }
+                                                    Text(order.label)
+                                                }
+                                            },
+                                            onClick = {
+                                                onSetMediaSortOrder(order)
+                                                showSortMenu = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             IconButton(onClick = { showAlbumSheet = true }) {
                                 Icon(Icons.Default.Folder, contentDescription = "アルバム一覧")
                             }
@@ -335,9 +369,11 @@ fun MediaGridScreen(
             isFavoritesSelected = uiState.isFavoritesAlbum,
             isTrashSelected = uiState.isTrashAlbum,
             isMoveMode = false,
+            albumSortOrder = uiState.albumSortOrder,
             onAlbumSelected = onAlbumSelect,
             onFavoritesSelected = onFavoritesSelect,
             onTrashSelected = onTrashSelect,
+            onToggleAlbumSort = onToggleAlbumSort,
             onCreateNewAlbum = onCreateNewAlbum,
             onDismiss = { showAlbumSheet = false }
         )
@@ -348,6 +384,7 @@ fun MediaGridScreen(
             albums = uiState.albums,
             selectedAlbum = null,
             isMoveMode = true,
+            albumSortOrder = uiState.albumSortOrder,
             onAlbumSelected = { targetAlbum ->
                 if (targetAlbum != null) {
                     onMoveSelected(targetAlbum.name)

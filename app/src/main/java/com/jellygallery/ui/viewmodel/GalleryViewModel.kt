@@ -5,7 +5,9 @@ import android.app.PendingIntent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jellygallery.data.model.Album
+import com.jellygallery.data.model.AlbumSortOrder
 import com.jellygallery.data.model.MediaItem
+import com.jellygallery.data.model.MediaSortOrder
 import com.jellygallery.data.repository.MediaRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +25,9 @@ data class GalleryUiState(
     val isSelectionMode: Boolean = false,
     val isLoading: Boolean = false,
     val pendingIntent: PendingIntent? = null,
-    val hasManageStoragePermission: Boolean = false
+    val hasManageStoragePermission: Boolean = false,
+    val mediaSortOrder: MediaSortOrder = MediaSortOrder.DATE_DESC,
+    val albumSortOrder: AlbumSortOrder = AlbumSortOrder.COUNT_DESC
 )
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
@@ -53,7 +57,8 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             val list = repository.getMediaList(
                 albumPath = if (!_uiState.value.isFavoritesAlbum && !_uiState.value.isTrashAlbum) _uiState.value.selectedAlbum?.name else null,
                 onlyFavorites = _uiState.value.isFavoritesAlbum,
-                includeTrashed = _uiState.value.isTrashAlbum
+                includeTrashed = _uiState.value.isTrashAlbum,
+                sortOrder = _uiState.value.mediaSortOrder
             )
             _uiState.value = _uiState.value.copy(mediaList = list, isLoading = false)
         }
@@ -61,9 +66,19 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun loadAlbums() {
         viewModelScope.launch {
-            val albums = repository.getAlbums()
+            val albums = repository.getAlbums(sortOrder = _uiState.value.albumSortOrder)
             _uiState.value = _uiState.value.copy(albums = albums)
         }
+    }
+
+    fun setMediaSortOrder(sortOrder: MediaSortOrder) {
+        _uiState.value = _uiState.value.copy(mediaSortOrder = sortOrder)
+        loadMedia()
+    }
+
+    fun setAlbumSortOrder(sortOrder: AlbumSortOrder) {
+        _uiState.value = _uiState.value.copy(albumSortOrder = sortOrder)
+        loadAlbums()
     }
 
     fun selectAlbum(album: Album?) {
@@ -125,19 +140,12 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    /**
-     * 削除処理:
-     * - 通常表示時: ゴミ箱へ移動（セーフティ）
-     * - ゴミ箱表示時: 完全に削除（ループ防止）
-     */
     fun deleteOrTrashItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
         if (items.isEmpty()) return
 
         if (_uiState.value.isTrashAlbum) {
-            // ゴミ箱の中なら完全削除
             permanentDeleteItems(items, onComplete)
         } else {
-            // 通常時はゴミ箱へ退避
             trashItems(items, onComplete)
         }
     }
@@ -168,9 +176,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /**
-     * 完全削除（ゴミ箱から完全に消去）
-     */
     fun permanentDeleteItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
         if (items.isEmpty()) return
         val uris = items.map { it.uri }
@@ -194,9 +199,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /**
-     * ゴミ箱から元に戻す（復元）
-     */
     fun restoreItems(items: List<MediaItem>, onComplete: (() -> Unit)? = null) {
         if (items.isEmpty()) return
         val uris = items.map { it.uri }
@@ -211,9 +213,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /**
-     * ゴミ箱を空にする（全完全削除）
-     */
     fun emptyTrash(onComplete: (() -> Unit)? = null) {
         val allTrashed = _uiState.value.mediaList
         if (allTrashed.isNotEmpty()) {
@@ -281,4 +280,3 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 }
-

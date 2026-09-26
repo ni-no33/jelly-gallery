@@ -17,6 +17,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.jellygallery.data.model.Album
+import com.jellygallery.data.model.AlbumSortOrder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,9 +27,11 @@ fun AlbumBottomSheet(
     isFavoritesSelected: Boolean = false,
     isTrashSelected: Boolean = false,
     isMoveMode: Boolean = false,
+    albumSortOrder: AlbumSortOrder = AlbumSortOrder.COUNT_DESC,
     onAlbumSelected: (Album?) -> Unit,
     onFavoritesSelected: () -> Unit = {},
     onTrashSelected: () -> Unit = {},
+    onToggleAlbumSort: () -> Unit = {},
     onCreateNewAlbum: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -58,13 +61,26 @@ fun AlbumBottomSheet(
                     text = if (isMoveMode) "移動先アルバムを選択" else "アルバム・フォルダ",
                     style = MaterialTheme.typography.titleMedium
                 )
-                TextButton(
-                    onClick = { showNewAlbumDialog = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("新規アルバム", style = MaterialTheme.typography.labelSmall)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!isMoveMode) {
+                        // フォルダ並び替え切り替えボタン
+                        TextButton(
+                            onClick = onToggleAlbumSort,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(albumSortOrder.label, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    TextButton(
+                        onClick = { showNewAlbumDialog = true },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text("新規", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             }
 
@@ -73,7 +89,6 @@ fun AlbumBottomSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (!isMoveMode) {
-                    // すべてのメディア
                     item {
                         val isAllSelected = selectedAlbum == null && !isFavoritesSelected && !isTrashSelected
                         Row(
@@ -99,7 +114,6 @@ fun AlbumBottomSheet(
                         }
                     }
 
-                    // ⭐ お気に入り（フォルダを超えて一まとめ）
                     item {
                         Row(
                             modifier = Modifier
@@ -124,7 +138,6 @@ fun AlbumBottomSheet(
                         }
                     }
 
-                    // 🗑️ ゴミ箱（30日間の一時保管）
                     item {
                         Row(
                             modifier = Modifier
