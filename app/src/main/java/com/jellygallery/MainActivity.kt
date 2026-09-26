@@ -142,11 +142,9 @@ class MainActivity : ComponentActivity() {
                                 initialIndex = currentViewing,
                                 albums = uiState.albums,
                                 isTrashMode = uiState.isTrashAlbum,
-                                onBack = {
-                                    currentViewing.let { idx ->
-                                        coroutineScope.launch {
-                                            gridState.scrollToItem(idx.coerceIn(0, (uiState.mediaList.size - 1).coerceAtLeast(0)))
-                                        }
+                                onBack = { lastIdx ->
+                                    coroutineScope.launch {
+                                        gridState.scrollToItem(lastIdx.coerceIn(0, (uiState.mediaList.size - 1).coerceAtLeast(0)))
                                     }
                                     viewingIndex = null
                                 },
@@ -233,3 +231,4 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+

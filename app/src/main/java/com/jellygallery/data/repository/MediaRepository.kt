@@ -76,8 +76,8 @@ class MediaRepository(private val context: Context) {
         val sortClause = when (sortOrder) {
             MediaSortOrder.DATE_DESC -> "${MediaStore.MediaColumns.DATE_TAKEN} DESC, ${MediaStore.MediaColumns.DATE_ADDED} DESC"
             MediaSortOrder.DATE_ASC -> "${MediaStore.MediaColumns.DATE_TAKEN} ASC, ${MediaStore.MediaColumns.DATE_ADDED} ASC"
-            MediaSortOrder.NAME_ASC -> "${MediaStore.MediaColumns.DISPLAY_NAME} ASC"
-            MediaSortOrder.NAME_DESC -> "${MediaStore.MediaColumns.DISPLAY_NAME} DESC"
+            MediaSortOrder.NAME_ASC -> "${MediaStore.MediaColumns.DISPLAY_NAME} COLLATE NOCASE ASC"
+            MediaSortOrder.NAME_DESC -> "${MediaStore.MediaColumns.DISPLAY_NAME} COLLATE NOCASE DESC"
         }
 
         try {
@@ -246,3 +246,4 @@ class MediaRepository(private val context: Context) {
         }
     }
 }
+

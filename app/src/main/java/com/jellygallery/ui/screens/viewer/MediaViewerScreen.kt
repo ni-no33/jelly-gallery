@@ -40,7 +40,7 @@ fun MediaViewerScreen(
     initialIndex: Int,
     albums: List<Album>,
     isTrashMode: Boolean = false,
-    onBack: () -> Unit,
+    onBack: (lastIndex: Int) -> Unit,
     onToggleFavorite: (MediaItem) -> Unit,
     onDeleteOrTrash: (MediaItem, onDone: () -> Unit) -> Unit,
     onRestore: (MediaItem, onDone: () -> Unit) -> Unit = { _, _ -> },
@@ -49,14 +49,10 @@ fun MediaViewerScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    BackHandler {
-        onBack()
-    }
-
     val pageCount = mediaList.size
     if (pageCount == 0) {
         LaunchedEffect(Unit) {
-            onBack()
+            onBack(0)
         }
         return
     }
@@ -70,9 +66,13 @@ fun MediaViewerScreen(
     val currentPage = pagerState.currentPage.coerceIn(0, pageCount - 1)
     val currentItem = mediaList.getOrNull(currentPage)
 
+    BackHandler {
+        onBack(currentPage)
+    }
+
     fun advanceToNextAfterAction() {
         if (pageCount <= 1) {
-            onBack()
+            onBack(0)
         } else if (currentPage >= pageCount - 1) {
             coroutineScope.launch {
                 pagerState.animateScrollToPage(currentPage - 1)
@@ -94,12 +94,17 @@ fun MediaViewerScreen(
                 val item = mediaList[page]
 
                 if (item.isVideo) {
-                    VideoPlayer(videoUri = item.uri)
+                    // 現在表示されているページのみ再生し、隣のページでは音声を止める
+                    VideoPlayer(
+                        videoUri = item.uri,
+                        isPlaying = (pagerState.currentPage == page)
+                    )
                 } else {
-                    var scale by remember { mutableFloatStateOf(1f) }
-                    var offsetX by remember { mutableFloatStateOf(0f) }
-                    var offsetY by remember { mutableFloatStateOf(0f) }
-                    var pullToDismissY by remember { mutableFloatStateOf(0f) }
+                    // 写真ごとにズーム倍率・オフセットを独立管理（ページ送りの引き継ぎバグ防止）
+                    var scale by remember(item.id) { mutableFloatStateOf(1f) }
+                    var offsetX by remember(item.id) { mutableFloatStateOf(0f) }
+                    var offsetY by remember(item.id) { mutableFloatStateOf(0f) }
+                    var pullToDismissY by remember(item.id) { mutableFloatStateOf(0f) }
 
                     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
                         scale = (scale * zoomChange).coerceIn(1f, 4f)
@@ -117,8 +122,7 @@ fun MediaViewerScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .offset { IntOffset(0, pullToDismissY.roundToInt()) }
-                            // 1. タップ・ダブルタップ検出
-                            .pointerInput(Unit) {
+                            .pointerInput(item.id) {
                                 detectTapGestures(
                                     onTap = {
                                         showControls = !showControls
@@ -134,13 +138,12 @@ fun MediaViewerScreen(
                                     }
                                 )
                             }
-                            // 2. 下スワイプで戻る（Pull-to-Dismiss）検出（等倍時のみ）
-                            .pointerInput(scale) {
+                            .pointerInput(item.id, scale) {
                                 if (scale <= 1.05f) {
                                     detectVerticalDragGestures(
                                         onDragEnd = {
                                             if (pullToDismissY > 120f) {
-                                                onBack()
+                                                onBack(currentPage)
                                             } else {
                                                 pullToDismissY = 0f
                                             }
@@ -157,7 +160,6 @@ fun MediaViewerScreen(
                                     )
                                 }
                             }
-                            // 3. 拡大時のみピンチ＆パン
                             .then(
                                 if (scale > 1.05f) {
                                     Modifier.transformable(transformState)
@@ -209,7 +211,7 @@ fun MediaViewerScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = { onBack(currentPage) }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "戻る")
                     }
                 },
@@ -241,7 +243,6 @@ fun MediaViewerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (isTrashMode) {
-                        // ゴミ箱表示時: 元に戻す（復元）
                         IconButton(
                             onClick = {
                                 currentItem?.let { item ->
@@ -260,7 +261,6 @@ fun MediaViewerScreen(
                             )
                         }
 
-                        // ゴミ箱表示時: 完全に削除（ループ防止）
                         IconButton(
                             onClick = {
                                 currentItem?.let { item ->
@@ -279,7 +279,6 @@ fun MediaViewerScreen(
                             )
                         }
                     } else {
-                        // 通常表示時: お気に入り
                         IconButton(
                             onClick = { currentItem?.let { onToggleFavorite(it) } },
                             modifier = Modifier.size(48.dp)
@@ -292,7 +291,6 @@ fun MediaViewerScreen(
                             )
                         }
 
-                        // 移動
                         IconButton(
                             onClick = { showMoveSheet = true },
                             modifier = Modifier.size(48.dp)
@@ -305,7 +303,6 @@ fun MediaViewerScreen(
                             )
                         }
 
-                        // 共有
                         IconButton(
                             onClick = {
                                 currentItem?.let { item ->
@@ -328,7 +325,6 @@ fun MediaViewerScreen(
                             )
                         }
 
-                        // ゴミ箱へ
                         IconButton(
                             onClick = {
                                 currentItem?.let { item ->

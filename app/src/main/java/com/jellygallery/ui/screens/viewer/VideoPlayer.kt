@@ -12,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -21,6 +20,7 @@ import androidx.media3.ui.PlayerView
 @Composable
 fun VideoPlayer(
     videoUri: Uri,
+    isPlaying: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -29,7 +29,14 @@ fun VideoPlayer(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(androidx.media3.common.MediaItem.fromUri(videoUri))
             prepare()
-            playWhenReady = true
+            playWhenReady = isPlaying
+        }
+    }
+
+    LaunchedEffect(isPlaying) {
+        exoPlayer.playWhenReady = isPlaying
+        if (!isPlaying) {
+            exoPlayer.pause()
         }
     }
 
@@ -59,4 +66,3 @@ fun VideoPlayer(
         )
     }
 }
-
